@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>티처블 머신 이미지 인식</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.min.js"></script>
+  <script src="https://unpkg.com/ml5@0.6.1/dist/ml5.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      padding: 28px 16px 40px;
+      background: linear-gradient(145deg, #fbfaff, #f0ebff);
+      color: #29253a;
+      font-family: Arial, "Malgun Gothic", sans-serif;
+    }
+    main {
+      width: min(1120px, 100%);
+      margin: 0 auto;
+      padding: clamp(20px, 5vw, 38px);
+      border: 1px solid #e7e0fb;
+      border-radius: 26px;
+      background: #fff;
+      box-shadow: 0 18px 55px #47317b18;
+    }
+    .eyebrow { margin: 0 0 8px; color: #7654d6; font-size: 12px; font-weight: 800; letter-spacing: .12em; }
+    h1 { margin: 0; color: #34245e; font-size: clamp(25px, 5vw, 34px); }
+    .intro { margin: 9px 0 22px; color: #777285; }
+    .url-label { display: block; margin: 0 0 8px; color: #34245e; font-size: 14px; font-weight: 750; }
+    .url-row { display: flex; gap: 9px; }
+    #model-url {
+      flex: 1; min-width: 0; height: 46px; padding: 0 13px;
+      border: 1px solid #dcd5ef; border-radius: 12px; color: #29253a;
+      font: inherit; font-size: 14px; outline-color: #7654d6;
+    }
+    .buttons { display: flex; gap: 9px; margin-top: 11px; }
+    button { min-height: 44px; padding: 0 18px; border: 0; border-radius: 12px; color: white; font: inherit; font-weight: 750; cursor: pointer; }
+    button:focus-visible, input:focus-visible { outline: 3px solid #c6b5ff; outline-offset: 2px; }
+    button:disabled { cursor: not-allowed; opacity: .5; }
+    #start-button { background: #7654d6; }
+    #start-button:hover:not(:disabled) { background: #6240c3; }
+    #stop-button { background: #d65f68; }
+    #stop-button:hover:not(:disabled) { background: #b84550; }
+    #status { min-height: 22px; margin: 14px 0 12px; color: #706c80; font-size: 14px; }
+    .results-layout { display: flex; align-items: stretch; justify-content: center; gap: 18px; }
+    #canvas-holder { display: flex; flex: 1 1 640px; min-width: 0; justify-content: center; overflow: hidden; border-radius: 18px; }
+    canvas { display: block; max-width: 100%; height: auto !important; border: 1px solid #e7e0fb; border-radius: 18px; }
+    .action-panel { flex: 0 0 300px; min-height: 520px; padding: 24px 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; border: 1px solid #e7e0fb; border-radius: 18px; background: linear-gradient(160deg,#faf8ff,#f0ebff); text-align: center; }
+    .action-panel h2 { margin: 12px 0 8px; color: #34245e; font-size: 23px; }
+    .action-panel p { margin: 0; color: #706c80; font-size: 14px; line-height: 1.6; }
+    .action-art { width: 220px; height: 220px; display: grid; place-items: center; border-radius: 28px; background: #fff; box-shadow: 0 12px 34px #47317b12; }
+    .action-art svg { width: 190px; height: 190px; }
+    .action-tag { margin-top: 18px; padding: 7px 13px; border-radius: 999px; background: #e9e2ff; color: #6240c3; font-size: 12px; font-weight: 800; }
+    .help { margin: 12px 0 0; color: #898597; font-size: 12px; line-height: 1.55; }
+    @media (max-width: 540px) {
+      body { padding: 14px 10px 24px; }
+      main { padding: 21px 15px; border-radius: 20px; }
+      .url-row { flex-direction: column; }
+      #model-url { width: 100%; }
+      .buttons button { flex: 1; }
+      .results-layout { flex-direction: column; }
+      .action-panel { flex: auto; min-height: 320px; }
+      .action-art { width: 170px; height: 170px; }
+      .action-art svg { width: 145px; height: 145px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="eyebrow">TEACHABLE MACHINE · IMAGE CLASSIFIER</p>
+    <h1>이미지 인식 체험</h1>
+    <p class="intro">티처블 머신 모델 URL을 입력하고 카메라로 학습한 물체를 비춰 보세요.</p>
+
+    <label class="url-label" for="model-url">티처블 머신 모델 URL</label>
+    <div class="url-row">
+      <input
+        id="model-url"
+        type="url"
+        value=" "
+        placeholder="https://teachablemachine.withgoogle.com/models/모델ID/"
+        autocomplete="url"
+      >
+    </div>
+    <div class="buttons">
+      <button id="start-button" type="button">인식 시작</button>
+      <button id="stop-button" type="button" disabled>인식 종료</button>
+    </div>
+    <p id="status" role="status" aria-live="polite">모델 URL을 확인하고 인식 시작을 누르세요.</p>
+    <div class="results-layout">
+      <div id="canvas-holder"></div>
+      <aside class="action-panel" aria-live="polite">
+        <div class="action-art" id="action-art" role="img" aria-label="인식 대기 그림"></div>
+        <span class="action-tag" id="action-tag">인식 대기</span>
+        <h2 id="action-title">결과를 기다리는 중</h2>
+        <p id="action-description">인식을 시작하면 클래스에 맞는 그림과 설명이 여기에 표시됩니다.</p>
+      </aside>
+    </div>
+    <p class="help">카메라 권한을 허용해 주세요. 모델 URL은 티처블 머신의 공유 링크를 붙여 넣으면 됩니다. 오른쪽 그림은 id1, id2, id3 인식에 따라 바뀝니다.</p>
+  </main>
+
+  <script>
+    let classifier = null;
+    let video = null;
+    let label = "시작 버튼을 눌러 주세요";
+    let confidence = 0;
+    let isRunning = false;
+    let cameraReady = false;
+    let modelReady = false;
+    let classifying = false;
+    let sessionId = 0;
+    let lastActionLabel = "";
+
+    const startButton = document.querySelector("#start-button");
+    const stopButton = document.querySelector("#stop-button");
+    const modelUrlInput = document.querySelector("#model-url");
+    const statusText = document.querySelector("#status");
+
+    function setup() {
+      const canvas = createCanvas(640, 520);
+      canvas.parent("canvas-holder");
+      textFont("Arial");
+    }
+
+    function draw() {
+      background("#f8f7fc");
+
+      // Camera preview panel
+      noStroke();
+      fill("#eeeaf7");
+      rect(20, 20, 600, 340, 18);
+
+      if (isRunning && cameraReady && video && video.elt.readyState >= 2) {
+        const flippedVideo = ml5.flipImage(video);
+        image(flippedVideo, 30, 30, 580, 320);
+        flippedVideo.remove();
+      } else {
+        fill("#706c80");
+        textAlign(CENTER, CENTER);
+        textSize(18);
+        text(isRunning ? "카메라 연결 중..." : "여기에 카메라 화면이 표시됩니다", width / 2, 190);
+      }
+
+      // Recognition result panel
+      fill("#ffffff");
+      stroke("#e7e0fb");
+      strokeWeight(1);
+      rect(20, 375, 600, 125, 18);
+      noStroke();
+      fill(getLabelColor(label));
+      textAlign(LEFT, CENTER);
+      textStyle(BOLD);
+      textSize(39);
+      text("인식 결과: " + getKoreanLabel(label), 40, 423);
+      fill("#706c80");
+      textStyle(NORMAL);
+      textSize(18);
+      text("정확도: " + nf(confidence * 100, 0, 1) + "%", 42, 470);
+    }
+
+    function normalizeModelUrl(rawUrl) {
+      let cleanUrl = rawUrl.trim();
+      if (!cleanUrl) throw new Error("티처블 머신 모델 URL을 입력해 주세요.");
+      if (!/^https:\/\//i.test(cleanUrl)) {
+        throw new Error("URL은 https:// 로 시작해야 합니다.");
+      }
+      cleanUrl = cleanUrl.replace(/\s/g, "");
+      if (cleanUrl.endsWith("model.json")) return cleanUrl;
+      return cleanUrl.replace(/\/+$/, "") + "/model.json";
+    }
+
+    function startRecognition() {
+      if (isRunning) return;
+
+      let modelJsonUrl;
+      try {
+        modelJsonUrl = normalizeModelUrl(modelUrlInput.value);
+      } catch (error) {
+        statusText.textContent = error.message;
+        return;
+      }
+
+      isRunning = true;
+      const thisSession = ++sessionId;
+      cameraReady = false;
+      modelReady = false;
+      classifying = false;
+      label = "모델 로딩 중...";
+      confidence = 0;
+      startButton.disabled = true;
+      stopButton.disabled = false;
+      modelUrlInput.disabled = true;
+      statusText.textContent = "모델을 불러오고 카메라에 연결하는 중입니다...";
+
+      // Load the user-provided Teachable Machine model.
+      classifier = ml5.imageClassifier(modelJsonUrl, () => {
+        if (!isRunning || thisSession !== sessionId) return;
+        modelReady = true;
+        startClassificationWhenReady(thisSession);
+      });
+
+      // Ask for camera permission only after the user presses Start.
+      video = createCapture(VIDEO, () => {
+        if (!isRunning || thisSession !== sessionId) return;
+        video.size(640, 480);
+        video.hide();
+        cameraReady = true;
+        startClassificationWhenReady(thisSession);
+      });
+      video.size(640, 480);
+      video.hide();
+    }
+
+    function startClassificationWhenReady(thisSession) {
+      if (!isRunning || thisSession !== sessionId || !modelReady || !cameraReady || classifying) return;
+      classifying = true;
+      statusText.textContent = "인식 중입니다. 학습한 물체를 카메라에 비춰 보세요.";
+      classifyVideo(thisSession);
+    }
+
+    function classifyVideo(thisSession) {
+      if (!isRunning || thisSession !== sessionId || !classifier || !video) return;
+
+      classifier.classify(video, (error, results) => {
+        if (!isRunning || thisSession !== sessionId) return;
+
+        if (error) {
+          console.error("분류 오류:", error);
+          statusText.textContent = "인식 오류가 발생했습니다. URL과 모델 공개 설정을 확인해 주세요.";
+          classifying = false;
+          return;
+        }
+
+        if (results && results.length > 0) {
+          label = results[0].label;
+          confidence = results[0].confidence;
+          if (label !== lastActionLabel) {
+            lastActionLabel = label;
+            showAction(label);
+          }
+        }
+
+        classifyVideo(thisSession);
+      });
+    }
+
+    function stopRecognition() {
+      isRunning = false;
+      sessionId += 1;
+      classifying = false;
+      cameraReady = false;
+      modelReady = false;
+
+      if (video) {
+        const stream = video.elt && video.elt.srcObject;
+        if (stream) stream.getTracks().forEach(track => track.stop());
+        video.remove();
+        video = null;
+      }
+
+      classifier = null;
+      label = "인식이 종료되었습니다";
+      confidence = 0;
+      lastActionLabel = "";
+      showAction("stopped");
+      startButton.disabled = false;
+      stopButton.disabled = true;
+      modelUrlInput.disabled = false;
+      statusText.textContent = "인식이 종료되었습니다. URL을 바꾸거나 다시 시작할 수 있습니다.";
+    }
+
+
+    function showAction(currentLabel) {
+      const art = document.querySelector("#action-art");
+      const tag = document.querySelector("#action-tag");
+      const title = document.querySelector("#action-title");
+      const description = document.querySelector("#action-description");
+
+      const doorOpen = `
+        <svg viewBox="0 0 220 220" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M45 188V48a12 12 0 0 1 10-12l92-18v170l-92 12a10 10 0 0 1-10-12Z" fill="#E9E2FF" stroke="#7654D6" stroke-width="7" stroke-linejoin="round"/>
+          <path d="m91 183 79-12V29l-79 16v138Z" fill="#B9A4F4" stroke="#7654D6" stroke-width="7" stroke-linejoin="round"/>
+          <path d="m91 45 47 31v94l-47 13V45Z" fill="#F7F4FF" stroke="#7654D6" stroke-width="5" stroke-linejoin="round"/>
+          <circle cx="126" cy="111" r="5" fill="#6240C3"/>
+          <path d="M24 105h34m-19-18 19 18-19 18" fill="none" stroke="#43A987" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>`;
+      const shotEffect = `
+        <svg viewBox="0 0 220 220" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <circle cx="110" cy="110" r="82" fill="#FFF2E8"/>
+          <path d="m72 122 11-34h69l18 19-18 18H99l-8 19H69l9-22Z" fill="#7654D6" stroke="#34245E" stroke-width="7" stroke-linejoin="round"/>
+          <path d="M99 88v-19h35v19m-41 57 23 16-8 17-28-22" fill="#B9A4F4" stroke="#34245E" stroke-width="7" stroke-linejoin="round"/>
+          <path d="m174 105 19-11-5 17 17 7-20 6" fill="#FFB547" stroke="#E98B27" stroke-width="4" stroke-linejoin="round"/>
+          <path d="m54 63-9-13m-9 47-17-2m37 86-12 11m117-139 10-13" stroke="#FFB547" stroke-width="7" stroke-linecap="round"/>
+          <circle cx="193" cy="77" r="6" fill="#F07767"/>
+        </svg>`;
+      const doorClosed = `
+        <svg viewBox="0 0 220 220" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <rect x="48" y="22" width="124" height="178" rx="8" fill="#E9E2FF" stroke="#7654D6" stroke-width="8"/>
+          <rect x="66" y="40" width="88" height="142" rx="3" fill="#B9A4F4" stroke="#7654D6" stroke-width="6"/>
+          <circle cx="135" cy="113" r="7" fill="#6240C3"/>
+          <path d="M34 201h152" stroke="#A69BBE" stroke-width="8" stroke-linecap="round"/>
+          <path d="M24 61h32m-17-17 17 17-17 17" fill="none" stroke="#43A987" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" transform="rotate(180 40 61)"/>
+        </svg>`;
+
+      if (currentLabel === "id1") {
+        art.innerHTML = doorOpen;
+        art.setAttribute("aria-label", "열린 문 그림");
+        tag.textContent = "ID 1 · 통과";
+        title.textContent = "통과";
+        description.textContent = "통과 메시지를 표시합니다.";
+      } else if (currentLabel === "id2") {
+        art.innerHTML = shotEffect;
+        art.setAttribute("aria-label", "만화풍 발사 효과 그림");
+        tag.textContent = "ID 2 · 발사";
+        title.textContent = "발사";
+        description.textContent = "발사 메시지를 표시합니다.";
+      } else if (currentLabel === "id3") {
+        art.innerHTML = doorClosed;
+        art.setAttribute("aria-label", "닫힌 문 그림");
+        tag.textContent = "ID 3 · 대기";
+        title.textContent = "대기";
+        description.textContent = "대기 메시지를 표시합니다.";
+      } else {
+        art.innerHTML = `<svg viewBox="0 0 220 220" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="110" cy="110" r="76" fill="#F1EDFF"/><path d="M70 112h80m-40-40v80" stroke="#A69BBE" stroke-width="12" stroke-linecap="round"/></svg>`;
+        art.setAttribute("aria-label", "인식 대기 그림");
+        tag.textContent = "인식 대기";
+        title.textContent = currentLabel === "stopped" ? "인식이 종료됐어요" : "결과를 기다리는 중";
+        description.textContent = currentLabel === "stopped" ? "다시 시작하면 인식 결과에 맞는 그림이 표시됩니다." : "인식을 시작하면 클래스에 맞는 그림과 설명이 여기에 표시됩니다.";
+      }
+    }
+
+    function getKoreanLabel(currentLabel) {
+      if (currentLabel === "id1") return "통과";
+      if (currentLabel === "id2") return "발사";
+      if (currentLabel === "id3") return "대기";
+      return currentLabel;
+    }
+
+    function getLabelColor(currentLabel) {
+      if (currentLabel === "id1") return color("#7654d6");
+      if (currentLabel === "id2") return color("#d65f68");
+      if (currentLabel === "id3") return color("#258b70");
+      return color("#34245e");
+    }
+
+    showAction("idle");
+    startButton.addEventListener("click", startRecognition);
+    stopButton.addEventListener("click", stopRecognition);
+  </script>
+</body>
+</html>
